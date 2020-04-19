@@ -1,0 +1,251 @@
+# Bayesian regression to predict audience score for a movie
+
+## Setup
+
+### Load packages
+
+```{r load-packages, message=FALSE, warning=FALSE}
+library(ggplot2)
+library(dplyr)
+library(statsr)
+library(BAS)
+library(broom)
+```
+
+### Load data
+
+
+
+```{r load-data}
+load("movies.Rdata")
+```
+
+
+
+* * *
+
+## Part 1: Data
+The dataset provided is data regarding a sample of movies of size 651 produced and released before 2016. We can assume random sampling is done as is mentioned in the description of the dataset. This dataset cannot be generalized for all movies as regional movies do not seem to be included in this list. However, the dataset can possibly be generalized for Hollywood movies. Any conclusions made from this dataset cannot prove causality as this is only an observational study as no experiment is being conducted.
+
+* * *
+
+## Part 2: Data manipulation
+
+In this section,we will be adding five new  columns to the existing dataset based on the existing columns which will provide value in our regression analysis. The new columns are:
+'feature_film', 'drama','mpaa_rating_R','oscar_season','summer_season'
+
+1. Feature_film:
+This column will tell if the film is a feature film or not.
+```{r}
+movies$feature_film<-ifelse(movies$title_type=="Feature Film","Yes","No")
+```
+
+2.Drama:
+This column will tell whether the genre of the movie is drama or not.
+```{r}
+movies$drama<-ifelse(movies$genre=="Drama","Yes","No")
+```
+3.Mpaa_rating_R :
+ This colun will tell whether the film is rated 18+ or not.
+```{r}
+movies$mpaa_rating_R<-ifelse(movies$mpaa_rating=="R","Yes","No")
+```
+4. Oscar_season :
+ This column will tell whether or not the movie was released in the oscar season of November, October or December.
+```{r}
+movies$oscar_season<-ifelse(movies$thtr_rel_month %in% c(10,11,12),"Yes","No")
+```
+
+5. Summer_season :
+ This column will tell whether or not the movie was released in the summer season of May,June, July or August.
+```{r}
+movies$summer_season<-ifelse(movies$thtr_rel_month %in% c(5,6,7,8),"Yes","No")
+```
+
+And finally, we will remove the columns we dont intend to conduct EDA or use for the modelling.
+```{r}
+movie<-movies%>%
+  select(feature_film,drama,runtime,mpaa_rating_R,thtr_rel_year,oscar_season,summer_season,imdb_rating,imdb_num_votes,critics_score,best_pic_nom,best_pic_win,best_actor_win,best_actress_win,best_dir_win,top200_box,audience_score)
+```
+Now our dataset which we will be using is complete.
+* * *
+
+## Part 3: Exploratory data analysis
+
+In this section we will take a look at the relationship between our response variable 'Audience_score' and the variables we have chosen and formed in the  dataset.
+Let's take a look at the summary statistics of our data.
+
+```{r}
+summary(movie)
+```
+We can see that the dataset has 6 numerical variables and 11 categoricl variables and seems to be a fairly complete dataset with the exception of one row which has a value of runtime missing. For the sake of convinience we will remove this row.
+```{r}
+movie<-movie[!is.na(movie$runtime),]
+```
+Let us take a look at some of the relationships. First, let us see if there is a relationship between the audience score and the movie being a feature film.
+
+```{r}
+ggplot(data=movie, aes(x=feature_film, y=audience_score))+geom_boxplot()
+```
+
+
+It is quite interesting that films that are not feature films tend to get much higher score on average compared to those which are not. The range is also lower on the movies which are not feature films so it is quite clear that there is a relation between whether films are feature films or not.
+
+Next we will take a look at the relationship between the audience score and the movie being a drama.
+```{r}
+ggplot(data=movie, aes(x=drama, y=audience_score))+geom_boxplot()
+```
+
+
+Here we can see that dramas tend to get a higher audience score compared to movies that aren't. 
+
+Next we will take a look at the relationship between the audience score and the movie being R rated.
+```{r}
+ggplot(data=movie, aes(x=mpaa_rating_R, y=audience_score))+geom_boxplot()
+```
+
+
+Here, we can see that the ratin of the movie doesn't seem to have much influence on the audience score. hence we can remove this from our dataset.
+
+
+```{r}
+movie<-movie%>%
+  select(- mpaa_rating_R)
+```
+
+
+Next we will take a look at the relationship between the audience score and the movie being released during the oscar season.
+```{r}
+ggplot(data=movie, aes(x=oscar_season, y=audience_score))+geom_boxplot()
+```
+
+
+There is a clearly higher average audience score for the movies being released during the oscar season.
+
+
+Next we will take a look at the relationship between the audience score and the movie being released  during summer.
+```{r}
+ggplot(data=movie, aes(x=summer_season, y=audience_score))+geom_boxplot()
+```
+
+
+Here however, there does not seem to be much variation in the ratings whether the movie was released during the summer or not. Hence ,we can eliminate it from our regression analysis.
+
+```{r}
+movie<-movie%>%
+  select(- summer_season)
+```
+
+We will now move on to the modelling section of our problem.
+* * *
+
+## Part 4: Modeling
+
+For our modelling and model selection we will use BIC as model selection criterion with model reference as uniform distribution, we will also using Bayesion model averaging. We will the BAS package  to construct and run our model.
+
+We start by applying BMA to the audience data using all potential predictors  and take a look at he PIPs of the various coefficients.
+```{r}
+# Fit the model using Bayesian linear regression, `bas.lm` function in the `BAS` package
+bma_audience_score <- bas.lm(audience_score ~ . -audience_score, data = movie,
+                   prior = "BIC", 
+                   modelprior = uniform())
+
+# Print out the marginal posterior inclusion probabilities for each variable                
+bma_audience_score
+```
+```{r}
+# Top 5 most probably models
+summary(bma_audience_score)
+```
+We have got all our models, let us take a look at the credible intervals for 95% confidence of the coefficients of the various variables.
+```{r}
+
+coef_audience_score <- coefficients(bma_audience_score)
+confint(coef_audience_score)
+```
+The confidence intervals of the coefficient given tells that there is a 95% probability that the coefficients will take a value between the two points given.
+
+
+Next let us conduct the model diagnostics:
+he Bayesian model specification assumes that the errors are normally distributed with a constant variance and that the mean expected weekly wages is linear in IQ. We can check these assumption by examining the distribution of the residuals for the model.
+In order to do so we will use predicted values, residuals, and standardized residuals of the model we fit earlier. The augment function in the broom package is going to come in handy here as it takes in a model object (the output of an lm) and returns a data frame with columns correspinding to variables in the model as well as predicted values (.fitted), residuals (.resid), and standardized residuals (.std.resid), along with a few others.
+
+```{r}
+m_audience_score<- lm(audience_score ~ . - audience_score, data = movie)
+model_aug <- augment(m_audience_score)
+```
+
+
+Linearity and Constant Variance:
+Let us plot the scatterplot between residuals and fitted values to check whether there is linearity and constant variance.
+```{r}
+ggplot(data = model_aug, aes(x = .fitted, y = .resid)) +
+  geom_point(alpha = 0.6) +
+  geom_hline(yintercept = 0, linetype = "dashed") +
+  labs(x = "Fitted values", y = "Residuals")
+```
+
+
+We can see that there is linearity however, lesser the audience score the more the variability. This could indicate the presense of factors that has not been provided in the dataset.
+
+Normality: To check this condition, we can look at a histogram of residuals
+
+```{r}
+ggplot(data = model_aug, aes(x = .resid)) +
+  geom_histogram() +
+  xlab("Residuals")
+```
+
+
+We can see that the graph look fairly normal with the exception of a few outliers skewing it slightly to the left.
+
+
+Taking a look at the normal probability plot of the residuals:
+```{r}
+ggplot(model_aug) +
+  geom_qq(aes(sample = .std.resid)) +
+  geom_abline(slope = 1, intercept = 0, linetype = "dashed") +
+  labs(x = "Theoretical quantiles", y = "Standardized residuals")
+```
+
+
+
+We can see that the plot is fairly straight except for the ends which we choose to ignore for this particular case.
+* * *
+
+## Part 5: Prediction
+
+For this section we will choose a movie from 2016 to predict the audience score. We will choose La La Land to do our prediction.
+All the data is taken from Imdb as well as Rotten Tomatoes.
+Let us run the prediction as well as form the Credible Interval at 95% and have a look at the outcome.
+```{r}
+topred<-data.frame(feature_film="Yes",drama="Yes",runtime=12, thtr_rel_year=2016,critics_score=91,top200_box='yes',oscar_season="Yes",summer_season="No",imdb_rating=8,imdb_num_votes=472791,best_pic_nom="yes" ,best_pic_win="no" ,best_actor_win="no" ,best_actress_win="yes" ,best_dir_win="yes" ,top200_box="yes" )
+
+```
+
+```{r}
+BPM_audience_score <- predict(bma_audience_score, estimator = "BPM",topred, se.fit = TRUE)
+confint(BPM_audience_score)
+```
+We have predicted a score of 89.61432 with a range of 60.03248 to 119.1962 with a credible interval of 95%. The actual value of the score is 91 which is indeed very close to the predicted value.
+
+* * *
+
+## Part 6: Conclusion
+We have formed a model as well as formed a prediction for a credible interval for the movie La La Land which turned out to be quite accurate. We used the bayesian method with a BIC prior with a model prior of uniform distribution to obtain our results. There were a few drawbacks as well as possible improvements that could be done. Our dataset is fairly limited to the type of movies and regional movies are not considered. There is a lack of constant variance which could indicate that other factors not present in the dataset is influencing our model. There are a few NA values which could be filled as well.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
